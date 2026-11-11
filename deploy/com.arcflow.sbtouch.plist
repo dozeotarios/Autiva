@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.arcflow.sbtouch — SpringBoardTouch tap-server watchdog LaunchDaemon.
+  Deployed to /var/jb/Library/LaunchDaemons/com.arcflow.sbtouch.plist
+  Runs /var/jb/usr/local/bin/sbtouch_watchdog.sh at load + every 120s.
+
+  Permanent self-heal: when backboardd resprings and ElleKit misses re-injecting
+  SpringBoardTouch.dylib, the tap server dies. This watchdog detects that and
+  resprings backboardd to force re-injection — the missing keepalive that WG
+  tunnel + wifi already had. Stops the recurring phone-bridge tap outages.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.arcflow.sbtouch</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/var/jb/bin/bash</string>
+        <string>/var/jb/usr/local/bin/sbtouch_watchdog.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/var/jb/usr/local/bin:/var/jb/usr/bin:/var/jb/bin:/var/jb/usr/sbin:/var/jb/sbin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Periodic check every 120s. Not KeepAlive: the script is a short-lived
+         health-check that exits, not a long-running daemon. -->
+    <key>StartInterval</key>
+    <integer>120</integer>
+
+    <key>StandardOutPath</key>
+    <string>/var/mobile/sbtouch_wd.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/var/mobile/sbtouch_wd.err</string>
+</dict>
+</plist>

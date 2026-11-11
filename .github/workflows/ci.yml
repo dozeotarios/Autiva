@@ -1,0 +1,15 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  core:
+    # The portable core has no Apple dependencies: protocol, RNG, waveform and
+    # plan validation are tested on a plain Linux runner in seconds.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build + run core tests
+        run: make test
