@@ -52,6 +52,10 @@ bool hid_swipe(int x1, int y1, int x2, int y2, int duration_ms);
 // Writes a PNG on the device. Runs on the caller's thread (never the main
 // queue) and reuses cached Metal objects across calls.
 bool capture_png(const std::string& out_path, double scale, std::string& err);
+// Same capture with an explicit retry budget (0 for boundary frames: a take
+// must not be delayed by four display-wake attempts).
+bool capture_png_n(const std::string& out_path, double scale, int retries,
+                   std::string& err);
 
 // ── clipboard ───────────────────────────────────────────────────────────────
 bool clipboard_set(const std::string& text, std::string& err);
@@ -88,6 +92,8 @@ bool record_arm(const std::string& label, const std::string& take_id,
 std::string record_stop();
 std::string record_status();
 bool monitor_available();
+// Starts the monitor and reports whether digitizer events actually arrive.
+bool monitor_probe(std::string& result_json, std::string& err);
 
 // Build identity for the `version` action.
 std::string version_json();

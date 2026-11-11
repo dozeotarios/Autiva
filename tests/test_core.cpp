@@ -212,6 +212,11 @@ void test_reply_shapes() {
              std::string(R"({"status":"success","ts":7})"));
     CHECK_EQ(autiva::make_legacy_reply(Status::Error, autiva::kErrCapture, 0),
              std::string(R"({"status":"fail","ts":0,"error":"capture_failed"})"));
+
+    // A refused-because-stale request must be distinguishable from a dead
+    // device: the host logs the difference.
+    CHECK_EQ(autiva::make_reply("r5", Status::Error, 0, false, autiva::kErrStaleRequest),
+             std::string(R"({"id":"r5","status":"error","ms":0,"delivered":false,"error":"stale_request"})"));
 }
 
 

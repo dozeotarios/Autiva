@@ -297,7 +297,7 @@ void record_start_internal(const std::string& label, const std::string& take_id,
 
     // Boundary frame: what screen the take started on.
     std::string cap_err;
-    capture_png(r.dir + "/start.png", 0.5, cap_err);
+    capture_png_n(r.dir + "/start.png", 0.5, /*retries=*/0, cap_err);
 
     r.fd = open((r.dir + "/trace.jsonl").c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (r.fd < 0) {
@@ -324,7 +324,7 @@ std::string record_stop_internal() {
         r.fd = -1;
     }
     std::string cap_err;
-    capture_png(r.dir + "/end.png", 0.5, cap_err);
+    capture_png_n(r.dir + "/end.png", 0.5, /*retries=*/0, cap_err);
 
     const std::uint64_t duration = mono_ms() - r.t0_mono;
     const std::uint64_t samples = r.samples.load();
@@ -435,5 +435,22 @@ std::string record_status() {
 }
 
 bool monitor_available() { return rec().monitor_ok.load(); }
+
+bool monitor_probe(std::string& result_json, std::string& err) {
+    if (!monitor_start()) {
+        err = "monitor_unavailable";
+        return false;
+    }
+    // Give the HID stack a moment to deliver anything at all. On this device
+    // nothing ever arrives (see docs/FINDINGS.md), which is exactly what the
+    // caller needs to know before asking for takes.
+    const uint64_t deadline = mono_ms() + 400;
+    while (mono_ms() < deadline && !rec().monitor_ok.load()) {
+        sleep_ms(20);
+    }
+    result_json = "{\"monitor\":" + std::string(rec().monitor_ok.load() ? "true" : "false") +
+                  ",\"digitizer_events\":" + std::to_string(rec().samples.load()) + "}";
+    return true;
+}
 
 }  // namespace autiva

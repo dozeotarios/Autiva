@@ -165,10 +165,12 @@ int main(int argc, char** argv) {
         sleep_ms(kPollMs);
     }
     if (reply.empty()) {
-        // Leave the request in place: the server may be mid-respring and will
-        // pick it up when it comes back; the caller sees a timeout, not a lie.
-        std::fprintf(stderr, "sbtctl: no reply within %dms (request kept at %s)\n",
-                     timeout_ms, inbox.c_str());
+        // Cancel the request. A tap that fires minutes later, when the caller
+        // has long given up, is worse than a timeout: it lands in whatever is
+        // on screen at that moment. The caller sees the failure and decides.
+        ::unlink(inbox.c_str());
+        std::fprintf(stderr, "sbtctl: no reply within %dms (request cancelled)\n",
+                     timeout_ms);
         return 3;
     }
 

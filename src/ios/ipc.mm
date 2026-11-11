@@ -20,7 +20,9 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
+#include <vector>
 #include <ctime>
 #include <mutex>
 #include <string>
@@ -236,6 +238,17 @@ void run_action(const Command& cmd, ExecResult& result) {
         result.result_json = record_stop();
         return;
     }
+    if (cmd.action == "monitor_probe") {
+        std::string probe_json;
+        std::string probe_err;
+        if (!monitor_probe(probe_json, probe_err)) {
+            result.error = probe_err;
+            return;
+        }
+        result.status = Status::Ok;
+        result.result_json = probe_json;
+        return;
+    }
     if (cmd.action == "record_status") {
         result.status = Status::Ok;
         result.result_json = record_status();
@@ -377,27 +390,50 @@ bool execute_plan_impl(const Plan& plan, std::string& result_json, std::string& 
     return failed_at < 0 && done == static_cast<int>(plan.steps.size());
 }
 
+// A request older than this is refused instead of executed: an abandoned tap
+// must never land minutes later in whatever the phone happens to be showing.
+constexpr long kStaleRequestS = 10;
+
 void drain_inbox() {
     DIR* dir = opendir(kInboxDir);
     if (!dir) return;
-    std::string name;
+    std::vector<std::string> names;
     while (dirent* entry = readdir(dir)) {
         const std::string candidate = entry->d_name;
         if (candidate == "." || candidate == "..") continue;
         if (candidate.size() > 5 && candidate.compare(candidate.size() - 5, 5, ".json") != 0) {
             continue;
         }
-        name = candidate;
-        break;
+        names.push_back(candidate);
     }
     closedir(dir);
-    if (name.empty()) return;
+    if (names.empty()) return;
+    // Deterministic FIFO: ids carry a timestamp, so lexical order is arrival
+    // order, and two clients can no longer jump each other arbitrarily.
+    std::sort(names.begin(), names.end());
+    const std::string& name = names.front();
 
     const std::string path = std::string(kInboxDir) + "/" + name;
+    struct stat st {};
+    const bool have_stat = (stat(path.c_str(), &st) == 0);
     bool ok = false;
     const std::string body = read_file(path, ok);
     unlink(path.c_str());
     if (!ok) return;
+
+    if (have_stat && (time(nullptr) - st.st_mtime) > kStaleRequestS) {
+        // Answer with the fact, so the host's log shows why nothing moved.
+        std::string stale_id;
+        json::Value stale_root;
+        std::string parse_err;
+        if (json::parse(body, stale_root, parse_err)) {
+            json::get_string(stale_root, "id", stale_id);
+        }
+        write_file_atomic(std::string(kOutboxDir) + "/" + name,
+                          make_reply(stale_id, Status::Error, 0, false, kErrStaleRequest));
+        log_line("mailbox: refused stale request " + name);
+        return;
+    }
 
     std::string reply;
     Command cmd;

@@ -31,6 +31,7 @@ inline constexpr std::string_view kErrBadField = "bad_field";
 inline constexpr std::string_view kErrOutOfRange = "out_of_range";
 inline constexpr std::string_view kErrCapture = "capture_failed";
 inline constexpr std::string_view kErrInternal = "internal";
+inline constexpr std::string_view kErrStaleRequest = "stale_request";
 
 struct Command {
     std::string id;      // sanitised; empty only for the legacy file protocol

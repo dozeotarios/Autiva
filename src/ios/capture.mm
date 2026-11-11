@@ -265,7 +265,8 @@ bool write_png(CGImageRef image, const std::string& path) {
 
 }  // namespace
 
-bool capture_png(const std::string& out_path, double scale, std::string& err) {
+bool capture_png_n(const std::string& out_path, double scale, int retries,
+                   std::string& err) {
     if (out_path.empty()) {
         err = std::string(kErrMissingField);
         return false;
@@ -277,7 +278,7 @@ bool capture_png(const std::string& out_path, double scale, std::string& err) {
     // recorder) had to re-implement it — and a failed capture mid-plan would
     // abort a whole session. Own it here: nudge the display, wait, retry.
     CGImageRef full = nullptr;
-    for (int attempt = 0; attempt <= kCaptureRetries && !full; ++attempt) {
+    for (int attempt = 0; attempt <= retries && !full; ++attempt) {
         if (attempt > 0) {
             const int fd = open(kWakeTriggerPath, O_WRONLY | O_CREAT, 0644);
             if (fd >= 0) close(fd);
@@ -302,6 +303,10 @@ bool capture_png(const std::string& out_path, double scale, std::string& err) {
     log_line("capture: " + std::to_string(mono_ms() - started) + "ms -> " + out_path +
              " scale=" + std::to_string(scale));
     return true;
+}
+
+bool capture_png(const std::string& out_path, double scale, std::string& err) {
+    return capture_png_n(out_path, scale, kCaptureRetries, err);
 }
 
 bool clipboard_set(const std::string& text, std::string& err) {
