@@ -34,8 +34,8 @@ mechanism, not about claiming we caused those four.
 
 - deployed `SpringBoardTouch.dylib`: md5 `891308fe…`, 74,848 B
 - tracked source: 831 lines, header says **v7**, five actions
-- live probe: `{"action":"clipboard"}` answers `success` — a capability that is not in the
-  source at all
+- live probe: `{"action":"clipboard"}` answers `success`, for a capability that is not in
+  the source at all
 
 Rebuilding from the tracked source would have silently removed a used action. Hence the
 `version` action with a build stamp, and the rules: no feature ships unless `version`
@@ -48,7 +48,7 @@ reports it, and the host refuses what the phone does not report.
 | unix `bind()` at `/var/mobile/sbtouch.sock` | `EPERM` |
 | `/private/var/tmp/sbtouch.sock`, `/var/mobile/Library/…` | `EPERM` |
 | `CFMessagePortCreateLocal` (Mach service) | returns `NULL` |
-| **create/unlink files under `/var/mobile`** | **works** (always has — `touch_status.json`) |
+| **create/unlink files under `/var/mobile`** | **works** (always has: `touch_status.json`) |
 
 Hence the per-request file mailbox. It is not a preference; it is the only channel this
 process is allowed.
@@ -56,7 +56,7 @@ process is allowed.
 ## 4. A monitor client cannot see touches in `backboardd`
 
 `IOHIDEventSystemClientCreateWithType` succeeds, the callback fires, and the events are
-types **13 / 12 / 1** (accelerometer, ambient light, vendor-defined) — never **11**
+types **13 / 12 / 1** (accelerometer, ambient light, vendor-defined), never **11**
 (digitizer). `IOHIDEventSystemClientSetMatching(digitizer/touchscreen)` returns a non-zero
 IOReturn. Injecting touches from this process works; observing them does not.
 
@@ -74,7 +74,7 @@ explicit error code.
 ## 6. `BKUserEventTimer` exists but does not respond here
 
 `objc_getClass("BKUserEventTimer")` returns a class, `sel_registerName("userEventOccurred")`
-resolves, but `respondsToSelector:` is false — so a synthetic touch cannot reset the display
+resolves, but `respondsToSelector:` is false, so a synthetic touch cannot reset the display
 idle timer from this process. Replaced with: nudge `/var/mobile/wake_trigger` between plan
 steps, and wake + retry inside the capture path. A napping display fails a capture in ~1 ms,
 so the retry is cheap when it is not needed.

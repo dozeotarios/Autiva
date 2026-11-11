@@ -22,18 +22,18 @@ echoed in the reply. Coordinates are device pixels: 1125×2436 on the reference 
 
 | action | fields | notes |
 |---|---|---|
-| `ping` | — | liveness only |
-| `version` | — | build id, capabilities, screen size |
-| `state` | — | current executor state |
+| `ping` | none | liveness only |
+| `version` | none | build id, capabilities, screen size |
+| `state` | none | current executor state |
 | `tap` | `x`, `y`, `hold_ms?` | `hold_ms` absent ⇒ sampled (~85 ms) |
 | `long_press` | `x`, `y`, `duration_ms?` | default 900 ms, jittered ±10 % |
-| `swipe` | `x1`,`y1`,`x2`,`y2`,`duration_ms?` | default 300 ms, 125–160 Hz sampled path |
+| `swipe` | `x1`,`y1`,`x2`,`y2`,`duration_ms?` | default 300 ms, 125 to 160 Hz sampled path |
 | `plan` | `steps[]`, `budget_ms?` | see below |
-| `screenshot` | `out_path`, `scale?` | PNG on the device, `scale` 0.1–1.0 |
-| `clipboard_get` | — | reads the general pasteboard (reads work, writes do not) |
+| `screenshot` | `out_path`, `scale?` | PNG on the device, `scale` 0.1 to 1.0 |
+| `clipboard_get` | none | reads the general pasteboard (reads work, writes do not) |
 | `clipboard` | `text` | **returns `clipboard_write_unsupported_use_pbset`** |
 | `record_start` | `label`, `take_id`, `max_ms` | refuses with `no_touch_source` on iOS 16 |
-| `record_stop` / `record_status` | — | take lifecycle (see FINDINGS) |
+| `record_stop`, `record_status` | none | take lifecycle (see FINDINGS) |
 
 ### Planned steps
 
@@ -64,8 +64,17 @@ is bounded by `budget_ms` (default: durations + 15 s; max 10 min).
 
 ### Error codes
 
-`bad_json` · `bad_id` · `missing_action` · `unknown_action` · `missing_field` ·
-`bad_field` · `out_of_range` · `capture_failed` · `internal` ·
-`no_touch_source` · `clipboard_write_unsupported_use_pbset`
+`bad_json`
+`bad_id`
+`missing_action`
+`unknown_action`
+`missing_field`
+`bad_field`
+`out_of_range`
+`capture_failed`
+`internal`
+`no_touch_source`
+`stale_request`
+`clipboard_write_unsupported_use_pbset`
 
 Legacy file replies keep the v8 shape: `{"status":"success"|"fail","ts":<epoch>,"error":?}`.
