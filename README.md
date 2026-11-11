@@ -1,110 +1,102 @@
 # Autiva
 
-**Touch automation for a jailbroken iPhone, driven from another machine over SSH.**
-
-One dylib injected into `backboardd` turns taps, long-presses and swipes into real HID
-events — plus screen capture — and a tiny CLI (`sbtctl`) drives it. No Mac, no Xcode, no
-Appium, no test-runner app.
-
-Written for an iPhone X (A11) on iOS 16 / palera1n rootless, and in production driving a
-real posting pipeline.
-
----
-
-## What it solves
-
-**1. Touch injection that doesn't take the phone down with it.**
-The previous version healed a stuck touch daemon by killing `backboardd` — which is the
-daemon whose missed userspace-watchdog checkins *panic the device* (`no successful checkins
-from backboardd`, four such reports on our phone in nine minutes). And the deployed binary
-had drifted a version ahead of its source, so it could not be rebuilt. Both are fixed here:
-the recovery path is one SpringBoard reload, and the source builds the binary.
-
-**2. One round trip per session, not per tap.**
-A gesture plan is pushed as a single request and executed on the device against absolute
-deadlines. 100 actions cost 1 SSH round trip instead of 100 × ~150 ms. Replies are
-correlated by id, so "did it work" is a fact rather than a guess.
-
-## What is actually proven (measured on the device)
-
-| Claim | Evidence |
-|---|---|
-| Taps reach the UI and are reversible | pixels: phash A→B 16, B→C 16, A→C 0 |
-| `delivered` means delivered | true only after the event left the main queue |
-| Captures survive a napping display | 49/50 on a sleeping phone (in-dylib wake + retry) |
-| `busy` is exact, not a heuristic | a ping concurrent with a screenshot returns `status:"busy"` |
-| Plans execute and are bounded | 3/3 steps in 986 ms; malformed plan rejected before any step; budget cut-off at step 1 |
-| No new device panics | only the four from 2026-11-08, i.e. before the unstable tweak was disabled |
-| Rebuilds from source | 179 KB dylib, compiled on the device with its own clang-16 |
-
-## What it deliberately does **not** do
-
-- **Record real touches.** A monitor client inside `backboardd` receives zero digitizer
-  events on iOS 16 (`setMatching` fails; only IMU/ambient/vendor events arrive), so
-  `record_start` refuses with `no_touch_source` rather than writing empty traces that look
-  successful. Capturing real gestures needs a hook inside the target app.
-- **Write the system clipboard.** `UIPasteboard` writes from `backboardd` do not reach the
-  app-facing pasteboard. Use `pbset` (or a file + an injected helper). Autiva reports
-  `clipboard:false` and says so instead of answering `success` like the old binary did.
-- **Reset the display idle timer.** `BKUserEventTimer` does not respond in this process;
-  a wake nudge plus a capture retry replaces it.
-
-## Layout
+Remote touch control for a jailbroken iPhone. A dylib injects real touches and captures
+the screen; a small CLI drives it over SSH.
 
 ```
-src/core/     portable C++20 — JSON, protocol, RNG, waveform profile, plans, recorder ring
-src/ios/      Objective-C++ shell — HID events, capture, mailbox IPC, entry point
-src/cli/      sbtctl, the client
-deploy/       injection filter, watchdog LaunchDaemon + script
-tests/        host unit tests (35k checks) and device verification
-docs/         protocol and findings
+your machine ──ssh──▶ sbtctl ──▶ backboardd + Autiva ──▶ tap · swipe · hold · capture
 ```
 
-The split is not decoration: `src/core` has no Apple APIs, so protocol and waveform
-regressions are caught in milliseconds on a Linux host (`make test`) instead of on a phone
-that needs a respring to deploy.
+No Mac, no Xcode, no Appium, no runner app. Built for an iPhone X on iOS 16 / palera1n
+(rootless), and running in production against a posting pipeline.
 
-## Build
+## Why it exists
+
+Driving a phone over SSH normally means one command per gesture — tap, screenshot, tap,
+screenshot — so every gesture is a round trip that can fail on its own. Two things make
+that worse here:
+
+- every synthetic touch looks identical to the system (same finger, same pressure), and
+- the obvious recovery for a stuck touch daemon — restarting `backboardd` — is the exact
+  thing that can panic this device and cost you the jailbreak.
+
+Autiva fixes both. Gestures are **plans** executed on the device against absolute
+deadlines, so a session costs one round trip instead of a hundred. Recovery is a single
+SpringBoard reload with a two-strike rule and a give-up marker.
+
+## Install
 
 ```bash
-make test      # portable core, runs anywhere (g++)
-make dylib     # compiles ON the phone with its own clang-16, signs with ldid
-make cli       # sbtctl
-make install   # copies both into /var/jb, keeps the previous binary for rollback
+make test           # portable core, ~35k checks, no phone required
+make dylib cli      # compiles on the phone with its own clang-16
+make install        # copies into /var/jb, keeps the previous binary for rollback
 ```
 
-Two device constraints are baked into the build because they cost hours to find: the phone's
-libc++ has no floating-point `std::to_chars`, and a binary executed from `/tmp` is SIGKILLed
-(it must live under `/var/jb`).
+Reload the dylib once (it lives in `backboardd`):
+
+```bash
+ssh root@<phone> launchctl kickstart -k system/com.apple.backboardd
+```
 
 ## Use
 
 ```bash
-sbtctl '{"id":"t1","action":"tap","x":562,"y":962}'
-# {"id":"t1","status":"ok","ms":94,"delivered":true}
+sbtctl '{"id":"1","action":"tap","x":562,"y":962}'
+# {"id":"1","status":"ok","ms":94,"delivered":true}
 
-sbtctl '{"id":"p1","action":"plan","steps":[
+sbtctl '{"id":"2","action":"plan","steps":[
   {"op":"tap","x":1021,"y":2262},
   {"op":"wait","ms":800},
   {"op":"swipe","x1":560,"y1":1800,"x2":560,"y2":900,"duration_ms":320}]}'
-# {"id":"p1","status":"ok","ms":1263,"delivered":true,
+# {"id":"2","status":"ok","ms":1263,"delivered":true,
 #  "result":{"steps":3,"done":3,"failed_at":null,"budget_ms":15900}}
 ```
 
-Exit codes: `0` ok · `2` busy · `3` no server · `4` command error · `5` usage.
-See [docs/PROTOCOL.md](docs/PROTOCOL.md) for every action, reply field and error code.
+Every request carries an `id` and every reply echoes it, with `status` = `ok` · `busy`
+(executor mid-command) · `error` plus a stable code. `delivered` means the event actually
+left the main queue, not that it was queued.
 
-## Deploying a new build
+Coordinates are device pixels (1125×2436 on the reference device). The full surface —
+actions, fields, error codes, exit codes — is in [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
-Reloading the dylib means restarting `backboardd` **once, deliberately**, while the phone is
-idle:
+## What is proven on the device
 
-```bash
-launchctl kickstart -k system/com.apple.backboardd
+| | |
+|---|---|
+| Taps reach the UI | pixel diffs either side of the tap, `delivered:true`, reversible |
+| Captures survive a sleeping display | 49/50 on a phone that was napping |
+| Plans are bounded | 3/3 steps in 986 ms; a malformed plan is rejected before step 1 |
+| Recovery cannot panic the phone | `sbreload` only, two consecutive failures, then alert |
+| It rebuilds from this source | 179 KB dylib compiled on-device with `clang-16` |
+
+## What it does not do
+
+- **Record real touches.** A monitor client inside `backboardd` receives no digitizer
+  events on iOS 16, so `record_start` refuses with `no_touch_source` instead of writing
+  empty traces. Capturing gestures needs a hook inside the target app.
+- **Write the clipboard.** `UIPasteboard` writes from `backboardd` do not reach the app;
+  use `pbset`.
+- **Reset the display idle timer.** Not available in that process; a wake nudge plus a
+  capture retry replaces it.
+
+All three are measured rather than assumed — the evidence is in
+[docs/FINDINGS.md](docs/FINDINGS.md).
+
+## Layout
+
+```
+src/core/    portable C++20 — protocol, seeded waveform, plans, recorder ring
+src/ios/     Objective-C++ shell — HID events, capture, mailbox IPC, entry point
+src/cli/     sbtctl
+deploy/      injection filter, LaunchDaemon, watchdog script
+tests/       host unit tests and device verification
+docs/        protocol and findings
 ```
 
-That is a deployment step, never a recovery step. Autiva's own watchdog heals with
-`sbreload` only, requires two consecutive failures, and gives up loudly — see
-[docs/FINDINGS.md](docs/FINDINGS.md) for why that distinction exists.
+The split is load-bearing: `src/core` has no Apple APIs, so protocol and gesture
+regressions are caught in milliseconds on any machine (`make test`) instead of on a phone
+that needs a respring to deploy.
 
-MIT licensed.
+## License
+
+MIT
